@@ -41,6 +41,17 @@ function validMediaType(
     : null;
 }
 
+// 照合失敗時のフォールバック: Claude が検出したタイトル情報だけで登録用アイテムを生成
+function detectedToCollectionItem(detected: DetectedItem): CollectionItem {
+  return {
+    externalId: `detected:${detected.title}`,
+    externalSource: detected.type === "book" ? "googlebooks" : "lastfm",
+    title: detected.title,
+    authorArtist: detected.author_artist,
+    coverUrl: null,
+  } as CollectionItem;
+}
+
 async function matchItem(detected: DetectedItem): Promise<CollectionItem | null> {
   try {
     if (detected.type === "book") {
@@ -141,7 +152,9 @@ export default function ImportPage() {
     setIsAdding(true);
     try {
       await Promise.all(
-        targets.map((i) => addFavorite(i.matched!, userId))
+        targets.map((i) =>
+          addFavorite(i.matched ?? detectedToCollectionItem(i.detected), userId)
+        )
       );
       router.push("/my");
     } catch (e) {
@@ -150,7 +163,7 @@ export default function ImportPage() {
     }
   };
 
-  const selectedCount = items.filter((i) => i.selected && i.matched).length;
+  const selectedCount = items.filter((i) => i.selected).length;
 
   return (
     <div className="space-y-6">
@@ -279,20 +292,21 @@ export default function ImportPage() {
                   </>
                 ) : (
                   <>
-                    {/* 照合失敗 */}
+                    {/* 照合失敗: タイトルのみで追加可能 */}
+                    <Placeholder title={item.detected.title} className="h-16 w-12 flex-none rounded text-xl" />
                     <div className="flex-1 min-w-0">
                       <p className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
                         {item.detected.title}
                       </p>
                       <p className="text-xs text-amber-600 dark:text-amber-400">
-                        照合できませんでした
+                        外部照合なし — タイトルのみで追加されます
                       </p>
                     </div>
                     <Link
                       href={`/search?q=${encodeURIComponent(item.detected.title)}`}
                       className="flex-none text-xs text-zinc-500 underline"
                     >
-                      手動で検索
+                      検索で確認
                     </Link>
                   </>
                 )}

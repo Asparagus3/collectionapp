@@ -70,18 +70,10 @@ async function searchGoogleBooks(query: string): Promise<BookItem[]> {
   });
 }
 
+// ブラウザからは直接 Open Library を叩かず API Route 経由でサーバーサイド検索する
 export async function searchBooks(query: string): Promise<BookItem[]> {
-  const results = await searchOpenLibrary(query);
-
-  // Open Library の結果のうちカバーなし件数が多い場合は Google Books で補完
-  const withCover = results.filter((r) => r.coverUrl !== null);
-  if (withCover.length >= 5) return results;
-
-  const googleResults = await searchGoogleBooks(query);
-  // Open Library 結果を優先し、Google Books を後ろに追加（重複除外は title ベース）
-  const titles = new Set(results.map((r) => r.title.toLowerCase()));
-  const extra = googleResults.filter(
-    (r) => !titles.has(r.title.toLowerCase())
-  );
-  return [...results, ...extra];
+  const res = await fetch(`/api/search/books?q=${encodeURIComponent(query)}`);
+  const data: { items?: BookItem[]; error?: string } = await res.json();
+  if (!res.ok || data.error) throw new Error(data.error ?? `書籍検索エラー (${res.status})`);
+  return data.items ?? [];
 }

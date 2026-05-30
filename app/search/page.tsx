@@ -33,6 +33,7 @@ export default function SearchPage() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<CollectionItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const [favoritedKeys, setFavoritedKeys] = useState<Set<string>>(new Set());
   const [addingKeys, setAddingKeys] = useState<Set<string>>(new Set());
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -55,11 +56,14 @@ export default function SearchPage() {
     }
     debounceRef.current = setTimeout(async () => {
       setLoading(true);
+      setSearchError(null);
       try {
         const data = await search(tab, query.trim());
         setResults(data);
       } catch (e) {
         console.error(e);
+        setSearchError(e instanceof Error ? e.message : "検索に失敗しました");
+        setResults([]);
       } finally {
         setLoading(false);
       }
@@ -125,6 +129,13 @@ export default function SearchPage() {
         placeholder={tab === "book" ? "タイトル・著者で検索" : "アルバム・アーティストで検索"}
         className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-zinc-500"
       />
+
+      {/* エラー */}
+      {searchError && (
+        <p className="rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 px-4 py-3 text-sm text-red-700 dark:text-red-400">
+          {searchError}
+        </p>
+      )}
 
       {/* ローディング */}
       {loading && (
