@@ -2,6 +2,8 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import ItemCard from "@/components/ItemCard";
 
+type Profile = { user_identifier: string; display_name: string };
+
 type FeedRow = {
   id: string;
   user_identifier: string;
@@ -15,16 +17,24 @@ type FeedRow = {
   } | null;
 };
 
-async function getFeed(): Promise<FeedRow[]> {
+async function getFeed(): Promise<{ feed: FeedRow[]; profiles: Map<string, string> }> {
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("favorites")
-    .select("id, user_identifier, created_at, items(id, title, author_artist, cover_url, type)")
-    .order("created_at", { ascending: false })
-    .limit(50);
+  const [feedRes, profilesRes] = await Promise.all([
+    supabase
+      .from("favorites")
+      .select("id, user_identifier, created_at, items(id, title, author_artist, cover_url, type)")
+      .order("created_at", { ascending: false })
+      .limit(50),
+    supabase.from("profiles").select("user_identifier, display_name"),
+  ]);
 
-  if (error) throw new Error(`feed fetch failed: ${error.message}`);
-  return (data ?? []) as unknown as FeedRow[];
+  if (feedRes.error) throw new Error(`feed fetch failed: ${feedRes.error.message}`);
+
+  const profiles = new Map<string, string>(
+    ((profilesRes.data ?? []) as Profile[]).map((p) => [p.user_identifier, p.display_name])
+  );
+
+  return { feed: (feedRes.data ?? []) as unknown as FeedRow[], profiles };
 }
 
 function shortId(uid: string): string {
@@ -32,7 +42,7 @@ function shortId(uid: string): string {
 }
 
 export default async function HomePage() {
-  const feed = await getFeed();
+  const { feed, profiles } = await getFeed();
 
   if (feed.length === 0) {
     return (
@@ -64,7 +74,8 @@ export default async function HomePage() {
               authorArtist={item.author_artist}
               coverUrl={item.cover_url}
               type={item.type as "book" | "music"}
-              meta={`${shortId(row.user_identifier)} が追加`}
+              meta={`${profiles.get(row.user_identifier) ?? shortId(row.user_identifier)} が追加`}
+              metaHref={`/users/${row.user_identifier}`}
             />
           );
         })}

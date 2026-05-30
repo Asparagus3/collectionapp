@@ -57,6 +57,19 @@ export async function addFavorite(
   return { status: "added", favoriteId: favRow.id };
 }
 
+export async function updateFavoriteRating(
+  favoriteId: string,
+  rating: number | null,
+  review: string | null
+): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("favorites")
+    .update({ rating, review: review?.trim() || null })
+    .eq("id", favoriteId);
+  if (error) throw new Error(`favorites update failed: ${error.message}`);
+}
+
 export async function removeFavorite(
   itemId: string,
   userId: string

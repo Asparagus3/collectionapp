@@ -6,7 +6,8 @@ import { usePathname } from "next/navigation";
 const links = [
   { href: "/", label: "ホーム" },
   { href: "/search", label: "検索" },
-  { href: "/import", label: "写真インポート" },
+  { href: "/users", label: "ユーザー" },
+  { href: "/import", label: "写真" },
   { href: "/my", label: "マイコレクション" },
 ];
 
