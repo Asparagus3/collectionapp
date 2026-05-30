@@ -61,8 +61,11 @@ export default function SearchPage() {
         const data = await search(tab, query.trim());
         setResults(data);
       } catch (e) {
+        // 音楽検索など、サーバー経由でない検索がエラーになった場合のみ表示
         console.error(e);
-        setSearchError(e instanceof Error ? e.message : "検索に失敗しました");
+        if (tab === "music") {
+          setSearchError("音楽の検索に失敗しました。しばらく待ってから再試行してください。");
+        }
         setResults([]);
       } finally {
         setLoading(false);
