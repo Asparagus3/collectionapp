@@ -73,7 +73,7 @@ async function searchGoogleBooks(query: string): Promise<BookItem[]> {
 // ブラウザからは直接 Open Library を叩かず API Route 経由でサーバーサイド検索する
 export async function searchBooks(query: string): Promise<BookItem[]> {
   const res = await fetch(`/api/search/books?q=${encodeURIComponent(query)}`);
-  const data: { items?: BookItem[]; error?: string } = await res.json();
+  const data: { items?: BookItem[]; error?: string; warning?: string } = await res.json();
   if (!res.ok || data.error) throw new Error(data.error ?? `書籍検索エラー (${res.status})`);
   return data.items ?? [];
 }
