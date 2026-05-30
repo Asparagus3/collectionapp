@@ -6,63 +6,39 @@ export type BookItem = {
   coverUrl: string | null;
 };
 
-type OpenLibraryDoc = {
-  key: string;
-  title: string;
-  author_name?: string[];
-  isbn?: string[];
-};
-
-type OpenLibraryResponse = {
-  docs: OpenLibraryDoc[];
-};
-
-type GoogleBooksVolume = {
-  id: string;
-  volumeInfo: {
-    title: string;
-    authors?: string[];
-    imageLinks?: { thumbnail?: string };
-  };
-};
-
-type GoogleBooksResponse = {
-  items?: GoogleBooksVolume[];
-};
-
-function openLibraryCoverUrl(isbn: string): string {
-  return `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg`;
-}
-
 async function searchOpenLibrary(query: string): Promise<BookItem[]> {
   const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=20&fields=key,title,author_name,isbn`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Open Library error: ${res.status}`);
-  const data: OpenLibraryResponse = await res.json();
+  const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  if (!res.ok) throw new Error(`Open Library: ${res.status}`);
+  const data = await res.json() as {
+    docs: { key: string; title: string; author_name?: string[]; isbn?: string[] }[];
+  };
 
   return data.docs.map((doc) => {
     const isbn = doc.isbn?.[0] ?? null;
     return {
       externalId: doc.key,
-      externalSource: "openlibrary",
+      externalSource: "openlibrary" as const,
       title: doc.title,
       authorArtist: doc.author_name?.[0] ?? "",
-      coverUrl: isbn ? openLibraryCoverUrl(isbn) : null,
+      coverUrl: isbn ? `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg` : null,
     };
   });
 }
 
 async function searchGoogleBooks(query: string): Promise<BookItem[]> {
   const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=20`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Google Books error: ${res.status}`);
-  const data: GoogleBooksResponse = await res.json();
+  const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  if (!res.ok) throw new Error(`Google Books: ${res.status}`);
+  const data = await res.json() as {
+    items?: { id: string; volumeInfo: { title: string; authors?: string[]; imageLinks?: { thumbnail?: string } } }[];
+  };
 
   return (data.items ?? []).map((vol) => {
     const thumbnail = vol.volumeInfo.imageLinks?.thumbnail ?? null;
     return {
       externalId: vol.id,
-      externalSource: "googlebooks",
+      externalSource: "googlebooks" as const,
       title: vol.volumeInfo.title,
       authorArtist: vol.volumeInfo.authors?.[0] ?? "",
       coverUrl: thumbnail ? thumbnail.replace(/^http:\/\//, "https://") : null,
@@ -70,10 +46,15 @@ async function searchGoogleBooks(query: string): Promise<BookItem[]> {
   });
 }
 
-// ブラウザからは直接 Open Library を叩かず API Route 経由でサーバーサイド検索する
+// ブラウザから直接 Open Library を呼ぶ（CORS対応済み）
+// → Vercel 共有IP のブロックを回避し、ユーザー各自のIPでアクセス
 export async function searchBooks(query: string): Promise<BookItem[]> {
-  const res = await fetch(`/api/search/books?q=${encodeURIComponent(query)}`);
-  const data: { items?: BookItem[]; error?: string; warning?: string } = await res.json();
-  if (!res.ok || data.error) throw new Error(data.error ?? `書籍検索エラー (${res.status})`);
-  return data.items ?? [];
+  try {
+    const results = await searchOpenLibrary(query);
+    if (results.length > 0) return results;
+  } catch {
+    // Open Library 失敗 → Google Books にフォールバック
+  }
+
+  return searchGoogleBooks(query);
 }

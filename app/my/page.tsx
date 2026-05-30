@@ -60,11 +60,15 @@ function ReviewPanel({
   const [rating, setRating] = useState<number | null>(item.rating);
   const [review, setReview] = useState(item.review ?? "");
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const handleSave = async () => {
     setSaving(true);
+    setSaveError(null);
     try {
       await onSave(item.favoriteId, rating, review || null);
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : "保存に失敗しました");
     } finally {
       setSaving(false);
     }
@@ -80,6 +84,9 @@ function ReviewPanel({
         rows={2}
         className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-500 resize-none"
       />
+      {saveError && (
+        <p className="text-xs text-red-600 dark:text-red-400">{saveError}</p>
+      )}
       <button
         onClick={handleSave}
         disabled={saving}
