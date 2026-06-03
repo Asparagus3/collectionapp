@@ -9,41 +9,50 @@ const FETCH_OPTS = {
   next: { revalidate: 60 },
 } as const;
 
-// ── 楽天ブックス API ──────────────────────────────────────────────────────────
-type RakutenItem = {
+// ── CiNii Books（国立情報学研究所）────────────────────────────────────────────
+// APIキー不要・日本語書籍に強い・JSON形式
+type CiNiiItem = {
   title: string;
-  author: string;
-  isbn: string;
-  largeImageUrl: string;
-  mediumImageUrl: string;
-  itemUrl: string;
+  "dc:creator"?: string;
+  "dcterms:hasPart"?: { "@id": string }[];
+  link?: { "@id": string };
 };
 
-async function searchRakuten(query: string): Promise<BookItem[]> {
-  const appId = process.env.RAKUTEN_APP_ID;
-  if (!appId) return [];
+async function searchCiNii(query: string): Promise<BookItem[]> {
+  const url =
+    `https://ci.nii.ac.jp/books/opensearch/search` +
+    `?title=${encodeURIComponent(query)}&format=json&count=20`;
 
-  const url = new URL("https://app.rakuten.co.jp/services/api/BooksBook/Search/20170404");
-  url.searchParams.set("applicationId", appId);
-  url.searchParams.set("keyword", query);
-  url.searchParams.set("hits", "20");
-  url.searchParams.set("format", "json");
-
-  const res = await fetch(url.toString(), FETCH_OPTS);
+  const res = await fetch(url, FETCH_OPTS);
   if (!res.ok) return [];
 
-  const data = await res.json() as { Items?: { Item: RakutenItem }[] };
+  const data = await res.json() as {
+    "@graph": [{ items?: CiNiiItem[] }];
+  };
 
-  return (data.Items ?? []).map(({ Item }) => ({
-    externalId: Item.isbn || Item.itemUrl,
-    externalSource: "rakuten" as const,
-    title: Item.title,
-    authorArtist: Item.author,
-    coverUrl: Item.largeImageUrl || Item.mediumImageUrl || null,
-  }));
+  const items = data["@graph"]?.[0]?.items ?? [];
+
+  return items.flatMap((item): BookItem[] => {
+    const isbns = (item["dcterms:hasPart"] ?? [])
+      .map((p) => p["@id"].replace("urn:isbn:", ""))
+      .filter((s) => /^\d{9,13}[\dX]?$/.test(s.replace(/-/g, "")));
+
+    const isbn = isbns[0] ?? null;
+    const ncid = item.link?.["@id"]?.split("/").pop() ?? item.title;
+
+    return [{
+      externalId: ncid,
+      externalSource: "openlibrary", // Open Library のカバーURLを使うため同じソース扱い
+      title: item.title,
+      authorArtist: (item["dc:creator"] ?? "").replace(/著$/, "").replace(/他$/, "").trim(),
+      coverUrl: isbn
+        ? `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg`
+        : null,
+    }];
+  });
 }
 
-// ── Open Library ──────────────────────────────────────────────────────────────
+// ── Open Library（英語書籍フォールバック）──────────────────────────────────────
 async function searchOpenLibrary(query: string): Promise<BookItem[]> {
   const url =
     `https://openlibrary.org/search.json` +
@@ -68,53 +77,19 @@ async function searchOpenLibrary(query: string): Promise<BookItem[]> {
   });
 }
 
-// ── Google Books（最終フォールバック） ──────────────────────────────────────────
-async function searchGoogleBooks(query: string): Promise<BookItem[]> {
-  const url =
-    `https://www.googleapis.com/books/v1/volumes` +
-    `?q=${encodeURIComponent(query)}&maxResults=20`;
-
-  const res = await fetch(url, FETCH_OPTS);
-  if (res.status === 429 || !res.ok) return [];
-
-  const data = await res.json() as {
-    items?: {
-      id: string;
-      volumeInfo: { title: string; authors?: string[]; imageLinks?: { thumbnail?: string } };
-    }[];
-  };
-
-  return (data.items ?? []).map((vol) => {
-    const thumbnail = vol.volumeInfo.imageLinks?.thumbnail ?? null;
-    return {
-      externalId: vol.id,
-      externalSource: "googlebooks" as const,
-      title: vol.volumeInfo.title,
-      authorArtist: vol.volumeInfo.authors?.[0] ?? "",
-      coverUrl: thumbnail ? thumbnail.replace(/^http:\/\//, "https://") : null,
-    };
-  });
-}
-
 // ── ルートハンドラ ────────────────────────────────────────────────────────────
 export async function GET(request: Request): Promise<Response> {
   const { searchParams } = new URL(request.url);
   const query = searchParams.get("q")?.trim();
   if (!query) return Response.json({ items: [] });
 
-  // 1. 楽天ブックス（日本語書籍に強い・APIキーが必要）
-  const rakutenResults = await searchRakuten(query);
-  if (rakutenResults.length > 0) {
-    return Response.json({ items: rakutenResults });
+  // 1. CiNii Books（日本語書籍に最適・APIキー不要）
+  const ciNiiResults = await searchCiNii(query);
+  if (ciNiiResults.length > 0) {
+    return Response.json({ items: ciNiiResults });
   }
 
-  // 2. Open Library（英語書籍・APIキー不要）
+  // 2. Open Library（英語書籍・フォールバック）
   const olResults = await searchOpenLibrary(query);
-  if (olResults.length > 0) {
-    return Response.json({ items: olResults });
-  }
-
-  // 3. Google Books（最終フォールバック・429 でも空配列を返す）
-  const gbResults = await searchGoogleBooks(query);
-  return Response.json({ items: gbResults });
+  return Response.json({ items: olResults });
 }
